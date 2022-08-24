@@ -8,7 +8,7 @@ use crate::{
 // This file explores how the traits could change if we could
 // use generic associated types
 
-pub trait CodecBetter {
+pub trait CodecGAT {
     type Item<'a>;
     type Error;
 
@@ -19,47 +19,49 @@ pub trait CodecBetter {
 // it seems like it makes the bounds better
 fn get_with_codec<'t, K, V>(db: &'t DB, key: K::Item<'t>) -> Result<V, Error>
 where
-    K: CodecBetter,
-    V: CodecBetter,
+    K: CodecGAT,
+    V: CodecGAT,
 {
     todo!()
 }
 // except that if we split the Codec trait into two:
-pub trait EncodeBetter {
-    type Item<'a>;
+pub trait EncodeGAT {
+    type EItem<'a>;
     type Error;
 
-    fn encode<'a>(item: Self::Item<'a>) -> Result<Cow<'a, [u8]>, Self::Error>;
+    fn encode<'a>(item: Self::EItem<'a>) -> Result<Cow<'a, [u8]>, Self::Error>;
 }
-pub trait DecodeBetter {
-    type Item<'a>;
+pub trait DecodeGAT {
+    type DItem<'a>;
     type Error;
 
-    fn decode<'a>(bytes: &'a [u8]) -> Result<Self::Item<'a>, Self::Error>;
+    fn decode<'a>(bytes: &'a [u8]) -> Result<Self::DItem<'a>, Self::Error>;
 }
 // then the bounds get difficult as well:
-fn get_with_codec_2<'t, K, V>(db: &'t DB, key: <K as EncodeBetter>::Item<'t>) -> Result<V, Error>
+fn get_with_codec_2<'t, K, V>(db: &'t DB, key: <K as EncodeGAT>::EItem<'t>) -> Result<V, Error>
 where
-    for<'a> K: EncodeBetter + DecodeBetter<Item<'a> = <K as EncodeBetter>::Item<'a>>,
-    for<'a> V: EncodeBetter + DecodeBetter<Item<'a> = <V as EncodeBetter>::Item<'a>>,
+    // but in many cases we don't actually want an equivalence between EItem and DItem
+    for<'a> K: EncodeGAT + DecodeGAT<DItem<'a> = <K as EncodeGAT>::EItem<'a>>,
+    for<'a> V: EncodeGAT + DecodeGAT<DItem<'a> = <V as EncodeGAT>::EItem<'a>>,
 {
     todo!()
 }
 // but we can also split the Codec type into Encode and Decode and then redefine it as:
-trait CodecBetter2:
-    for<'a> EncodeBetter<Item<'a> = Self::Item2<'a>> + for<'a> DecodeBetter<Item<'a> = Self::Item2<'a>>
+trait CodecGAT2:
+    for<'a> EncodeGAT<EItem<'a> = Self::Item<'a>> + for<'a> DecodeGAT<DItem<'a> = Self::Item<'a>>
 {
-    type Item2<'a>;
+    type Item<'a>;
 }
+
 // then we're okay:
-fn get_with_codec_3<'t, K, V>(db: &'t DB, key: K::Item2<'t>) -> Result<V, Error>
+fn get_with_codec_3<'t, K, V>(db: &'t DB, key: K::Item<'t>) -> Result<V, Error>
 where
-    K: CodecBetter2,
-    V: CodecBetter2,
+    K: CodecGAT2,
+    V: CodecGAT2,
 {
     todo!()
 }
-// but this is also possible without GAT
+// but it's also possible without GAT, and I don't think that's what we want either
 
 // in short, GATs make the API more logical, but they don't really solve a lot of hard problems
 // for the Codec traits
@@ -67,7 +69,7 @@ where
 // On the other hand, the `MyRef` trait we had in `impls.rs` would be much nicer with GAT
 // That is not very important since I don't think we wanted this trait anyway
 
-pub trait MyRefBetter {
+pub trait MyRefGAT {
     // Ideally I'd be able to say that Ref<'a> is covariant over 'a, but that is not possible
     // https://internals.rust-lang.org/t/variance-of-lifetime-arguments-in-gats/14769/17
     type Ref<'a>: 'a + Copy + Sized;
@@ -79,31 +81,31 @@ pub trait MyRefBetter {
     fn to_owned(reference: Self::Ref<'_>) -> Self;
 }
 
-pub enum RefOrOwnedBetter<'a, T>
+pub enum RefOrOwnedGAT<'a, T>
 where
-    T: MyRefBetter,
+    T: MyRefGAT,
 {
-    Ref(<T as MyRefBetter>::Ref<'a>),
+    Ref(<T as MyRefGAT>::Ref<'a>),
     Owned(T),
 }
 
-impl<'a, T> RefOrOwnedBetter<'a, T>
+impl<'a, T> RefOrOwnedGAT<'a, T>
 where
-    T: MyRefBetter,
-    for<'c> <T as MyRefBetter>::Ref<'c>: Copy,
+    T: MyRefGAT,
+    for<'c> <T as MyRefGAT>::Ref<'c>: Copy,
 {
-    fn get_ref<'b>(&'b self) -> <T as MyRefBetter>::Ref<'b>
+    fn get_ref<'b>(&'b self) -> <T as MyRefGAT>::Ref<'b>
     where
         'a: 'b,
     {
         match self {
-            RefOrOwnedBetter::Ref(x) => T::upcast(*x),
-            RefOrOwnedBetter::Owned(_) => todo!(),
+            RefOrOwnedGAT::Ref(x) => T::upcast(*x),
+            RefOrOwnedGAT::Owned(_) => todo!(),
         }
     }
 }
 
-impl MyRefBetter for MyStructOwned {
+impl MyRefGAT for MyStructOwned {
     type Ref<'a> = MyStructRef<'a>;
 
     fn upcast<'a: 'b, 'b>(r: Self::Ref<'a>) -> Self::Ref<'b> {
@@ -126,8 +128,8 @@ impl MyRefBetter for MyStructOwned {
 }
 
 struct MyStructCodec3;
-impl CodecBetter for MyStructCodec3 {
-    type Item<'a> = RefOrOwnedBetter<'a, MyStructOwned>;
+impl CodecGAT for MyStructCodec3 {
+    type Item<'a> = RefOrOwnedGAT<'a, MyStructOwned>;
     type Error = Error;
 
     fn encode<'a>(item: Self::Item<'a>) -> Result<Cow<'a, [u8]>, Self::Error> {
@@ -145,11 +147,11 @@ impl CodecBetter for MyStructCodec3 {
         if is_ref {
             let x = std::str::from_utf8(&bytes[1..=4]).unwrap();
             let y = std::str::from_utf8(&bytes[5..=8]).unwrap();
-            Ok(RefOrOwnedBetter::Ref(MyStructRef { x, y }))
+            Ok(RefOrOwnedGAT::Ref(MyStructRef { x, y }))
         } else {
             let x = std::str::from_utf8(&bytes[1..=4]).unwrap().to_owned();
             let y = std::str::from_utf8(&bytes[5..=8]).unwrap().to_owned();
-            Ok(RefOrOwnedBetter::Owned(MyStructOwned { x, y }))
+            Ok(RefOrOwnedGAT::Owned(MyStructOwned { x, y }))
         }
     }
 }

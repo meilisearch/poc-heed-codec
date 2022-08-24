@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use crate::{Error, DB};
 
 // We actually want to split the Codec into an Encode and a Decode trait,
-// but I have merged them here for simplicity
+// but I have merged them here for simplicity.
 pub trait Codec<'a> {
     type Item: 'a;
     type Error;
@@ -18,11 +18,13 @@ pub trait DefaultCodec<'a> {
 }
 
 // here is what it looks like once split:
+// In many cases we *don't* want the items of the Encode and Decode traits to be the same.
+// For example, we might want to encode &'a Vec<u16> but decode Vec<u16>
 pub trait Encode<'a> {
     type EItem: 'a;
     type Error;
 
-    fn decode(bytes: &'a [u8]) -> Result<Self::EItem, Self::Error>;
+    fn encode(item: Self::EItem) -> Result<Cow<'a, [u8]>, Self::Error>;
 }
 pub trait Decode<'a> {
     type DItem: 'a;
@@ -32,6 +34,7 @@ pub trait Decode<'a> {
 }
 
 // Then we can have a convenience trait merging the two:
+// I am not actually sure if this trait will behave exactly like we want it to be
 pub trait Codec2<'a>: Encode<'a, EItem = Self::Item> + Decode<'a, DItem = Self::Item> {
     type Item: 'a;
 }

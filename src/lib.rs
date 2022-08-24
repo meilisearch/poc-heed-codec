@@ -9,8 +9,8 @@ pub mod trait_def;
 #[derive(Clone, Copy, Debug)]
 pub struct Error;
 
-// this type is not actually used for anything, but I might later to
-// write some examples
+// this type is not actually used for anything, but I might use it
+// later to write some examples
 #[derive(Default)]
 pub struct DB {
     pub keys: Vec<Vec<u8>>,
